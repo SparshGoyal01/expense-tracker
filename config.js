@@ -20,5 +20,5 @@ export const firebaseConfig = {
 // Only these Google accounts can open the tracker. Everyone else is turned away.
 export const ALLOWED_EMAILS = [
   "sparshgoyal20@gmail.com",
-  "PASTE_ISHITAS_GMAIL_HERE",
+  "ishitahinger03@gmail.com",
 ];
