@@ -1,0 +1,16 @@
+{
+  "name": "Kharcha Update",
+  "short_name": "Kharcha",
+  "description": "Sparsh & Ishita's shared expense ledger",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14191C",
+  "theme_color": "#14191C",
+  "icons": [
+    { "src": "./icons/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "./icons/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "./icons/icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

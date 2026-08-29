@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// Paste this into: Firebase console -> Firestore Database -> Rules -> Publish.
+// It means: only signed-in people whose email is on the list may read or write
+// anything. Keep this list identical to ALLOWED_EMAILS in config.js.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in [
+             'sparshgoyal20@gmail.com',
+             'paste_ishitas_gmail_here'
+           ];
+    }
+
+    match /{document=**} {
+      allow read, write: if allowed();
+    }
+  }
+}
