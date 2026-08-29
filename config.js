@@ -9,12 +9,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const firebaseConfig = {
-  apiKey: "PASTE_HERE",
-  authDomain: "PASTE_HERE",
-  projectId: "PASTE_HERE",
-  storageBucket: "PASTE_HERE",
-  messagingSenderId: "PASTE_HERE",
-  appId: "PASTE_HERE",
+  apiKey: "AIzaSyBUXvgbeJpF0KVFJ6aV-OU5R7nqrAjEDpA",
+  authDomain: "kharcha-update.firebaseapp.com",
+  projectId: "kharcha-update",
+  storageBucket: "kharcha-update.firebasestorage.app",
+  messagingSenderId: "226426171209",
+  appId: "1:226426171209:web:f4bfea9f8737efff1bf498",
 };
 
 // Only these Google accounts can open the tracker. Everyone else is turned away.
