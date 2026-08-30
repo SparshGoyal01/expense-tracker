@@ -4,7 +4,7 @@ import {
   PlusCircle, ScrollText, PieChart as PieChartIcon,
   ChevronLeft, ChevronRight, Pencil, Trash2, Check, Plus, X,
   ShoppingBasket, UtensilsCrossed, Car, Receipt, Clapperboard,
-  Sparkles, Package, Plane, Shapes, Tag, LogOut,
+  Sparkles, Package, Plane, Shapes, Tag, LogOut, Download,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
@@ -54,18 +54,14 @@ const ICON_MAP = {
 };
 const EXTRA_COLORS = ['#7FA8D9', '#B08BC7', '#6FBF8B', '#D98F5F', '#5FA8A3', '#C2A65C'];
 const PEOPLE = ['Sparsh', 'Ishita'];
-const LAST_PERSON_KEY = 'kharcha:lastPerson';
 
-function rememberedPerson() {
-  try {
-    const v = localStorage.getItem(LAST_PERSON_KEY);
-    return PEOPLE.includes(v) ? v : 'Sparsh';
-  } catch (e) {
-    return 'Sparsh';
-  }
-}
-function rememberPerson(p) {
-  try { localStorage.setItem(LAST_PERSON_KEY, p); } catch (e) { /* ignore */ }
+// Whoever is signed in is the default "spent by" person.
+const PERSON_BY_EMAIL = {
+  'sparshgoyal20@gmail.com': 'Sparsh',
+  'ishitahinger03@gmail.com': 'Ishita',
+};
+function personForEmail(email) {
+  return PERSON_BY_EMAIL[(email || '').toLowerCase()] || 'Sparsh';
 }
 
 function todayStr() {
@@ -101,6 +97,28 @@ function fmtAdded(iso) {
   if (sameDay(d, now)) return `Today, ${time}`;
   if (sameDay(d, yesterday)) return `Yesterday, ${time}`;
   return `${d.getDate()} ${d.toLocaleDateString('en-IN', { month: 'short' })}, ${time}`;
+}
+
+function csvCell(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function downloadMonthCsv(monthKey, list) {
+  const sorted = [...list].sort((a, b) =>
+    a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+  const rows = [['Date', 'Description', 'Category', 'Person', 'Amount (INR)']];
+  sorted.forEach((e) => rows.push([e.date, e.description, e.category, e.person, Math.round(e.amount)]));
+  rows.push(['', '', '', 'Total', Math.round(sorted.reduce((s, e) => s + e.amount, 0))]);
+  const body = rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8' }); // BOM: Excel opens rupee sign correctly
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `kharcha-${monthKey}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 // ── Sign-in gate screens ────────────────────────────────────────────────────
@@ -185,7 +203,7 @@ function App() {
   const [amount, setAmount] = useState('');
   const [desc, setDesc] = useState('');
   const [category, setCategory] = useState(null);
-  const [person, setPerson] = useState(rememberedPerson);
+  const [person, setPerson] = useState('Sparsh');
   const [date, setDate] = useState(todayStr());
   const [editingId, setEditingId] = useState(null);
 
@@ -200,6 +218,11 @@ function App() {
   useEffect(() => onAuthChange(setUser), []);
 
   const signedIn = user && isAllowed(user.email);
+
+  // Default the "spent by" toggle to whoever is signed in on this device.
+  useEffect(() => {
+    if (user?.email) setPerson(personForEmail(user.email));
+  }, [user?.email]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -239,7 +262,7 @@ function App() {
   }
   function resetForm() {
     setAmount(''); setDesc(''); setCategory(null);
-    setPerson(rememberedPerson()); setDate(todayStr()); setEditingId(null);
+    setPerson(personForEmail(user && user.email)); setDate(todayStr()); setEditingId(null);
   }
   async function handleSave() {
     const amt = parseFloat(amount);
@@ -261,7 +284,6 @@ function App() {
       showToast('Could not save — check connection');
       return;
     }
-    rememberPerson(person);
     if (editingId) showToast('Updated');
     else if (monthKey === currentMonth) showToast(`Saved ${fmtINR(amt)} to ${category}`);
     else showToast(`Saved ${fmtINR(amt)} to ${monthLabel(monthKey)}`);
@@ -332,7 +354,7 @@ function App() {
     }
     .exp-app button { font: inherit; border: none; background: none; cursor: pointer; color: inherit; }
     .exp-app input { font: inherit; }
-    .exp-shell { max-width: 460px; margin: 0 auto; width: 100%; flex: 1; display: flex; flex-direction: column; padding-bottom: 90px; }
+    .exp-shell { max-width: 460px; margin: 0 auto; width: 100%; flex: 1; display: flex; flex-direction: column; padding-bottom: 96px; }
     .exp-header { padding: 22px 20px 10px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
     .exp-title { font-family: 'Fraunces', serif; font-style: italic; font-weight: 600; font-size: 28px; letter-spacing: -0.01em; }
     .exp-subtitle { font-size: 12.5px; color: ${COLORS.textDim}; margin-top: 3px; letter-spacing: 0.02em; }
@@ -377,9 +399,11 @@ function App() {
     .exp-segment { display: flex; margin: 14px 20px; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 12px; padding: 3px; }
     .exp-segment button { flex: 1; padding: 9px; border-radius: 9px; font-size: 13.5px; color: ${COLORS.textDim}; font-weight: 500; }
     .exp-segment button.active { background: ${COLORS.accent}; color: ${COLORS.bg}; font-weight: 700; }
-    .exp-save-btn { margin: 18px 20px 4px; padding: 15px; border-radius: 14px; background: ${COLORS.accent}; color: ${COLORS.bg}; font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 6px; }
-    .exp-save-btn.disabled { opacity: 0.35; }
-    .exp-delete-link { display: block; margin: 10px auto 4px; font-size: 12.5px; color: ${COLORS.textFaint}; text-decoration: underline; }
+    .exp-app .exp-save-btn { position: sticky; bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 20; margin: 20px 20px 4px; padding: 17px; border-radius: 16px; background: ${COLORS.accent}; color: ${COLORS.bg}; font-weight: 800; font-size: 16px; letter-spacing: 0.01em; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 12px 28px -6px rgba(194, 136, 58, 0.5), 0 3px 10px rgba(0, 0, 0, 0.45); }
+    .exp-app .exp-save-btn:active { transform: translateY(1px); }
+    .exp-app .exp-save-btn.disabled { background: ${COLORS.surface2}; color: ${COLORS.textFaint}; border: 1px solid ${COLORS.border}; box-shadow: none; cursor: default; }
+    .exp-save-hint { text-align: center; font-size: 11.5px; color: ${COLORS.textFaint}; margin: 6px 20px 0; }
+    .exp-delete-link { display: block; margin: 12px auto 4px; font-size: 12.5px; color: ${COLORS.textFaint}; text-decoration: underline; }
     .exp-section-title { font-family: 'Fraunces', serif; font-size: 12.5px; color: ${COLORS.textFaint}; padding: 16px 20px 6px; text-transform: uppercase; letter-spacing: 0.08em; }
     .exp-row { display: flex; align-items: center; padding: 10px 20px; gap: 8px; }
     .exp-row .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -388,7 +412,10 @@ function App() {
     .exp-row .amt { font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-variant-numeric: tabular-nums; }
     .exp-row .person-badge { font-size: 9.5px; width: 18px; height: 18px; border-radius: 50%; background: ${COLORS.surface2}; border: 1px solid ${COLORS.border}; display: flex; align-items: center; justify-content: center; color: ${COLORS.textDim}; flex-shrink: 0; }
     .exp-row .iconbtn { color: ${COLORS.textFaint}; padding: 2px; flex-shrink: 0; }
-    .exp-filter-row { display: flex; gap: 8px; padding: 0 20px 14px; }
+    .exp-filter-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px 14px; }
+    .exp-filter-chips { display: flex; gap: 8px; }
+    .exp-app .exp-csv-btn { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 99px; border: 1px solid ${COLORS.border}; font-size: 12px; color: ${COLORS.textDim}; flex-shrink: 0; }
+    .exp-app .exp-csv-btn:active { background: ${COLORS.surface2}; }
     .exp-filter-chip { padding: 6px 14px; border-radius: 99px; border: 1px solid ${COLORS.border}; font-size: 12.5px; color: ${COLORS.textDim}; }
     .exp-filter-chip.active { background: ${COLORS.accent}; color: ${COLORS.bg}; border-color: ${COLORS.accent}; font-weight: 600; }
     .exp-empty { text-align: center; padding: 44px 24px; color: ${COLORS.textFaint}; font-size: 13.5px; }
@@ -492,8 +519,18 @@ function App() {
             </div>
 
             <button className={`exp-save-btn ${(!amount || !category) ? 'disabled' : ''}`} disabled={!amount || !category} onClick={handleSave}>
-              <Check size={18} /> {editingId ? 'Update entry' : 'Save entry'}
+              <Check size={20} />
+              {editingId
+                ? 'Update entry'
+                : (amount && category ? `Save ${fmtINR(parseFloat(amount) || 0)}` : 'Save entry')}
             </button>
+            {!editingId && (!amount || !category) && (
+              <div className="exp-save-hint">
+                {!amount && !category
+                  ? 'Enter an amount and choose a category to save'
+                  : !amount ? 'Enter an amount to save' : 'Choose a category to save'}
+              </div>
+            )}
             {editingId && (
               <button className="exp-delete-link" onClick={() => handleDelete(editingId)}>Delete this entry</button>
             )}
@@ -534,9 +571,16 @@ function App() {
               <div className="exp-total-amount">{loading ? '—' : fmtINR(total)}</div>
             </div>
             <div className="exp-filter-row">
-              {['All', ...PEOPLE].map((p) => (
-                <button key={p} className={`exp-filter-chip ${personFilter === p ? 'active' : ''}`} onClick={() => setPersonFilter(p)}>{p}</button>
-              ))}
+              <div className="exp-filter-chips">
+                {['All', ...PEOPLE].map((p) => (
+                  <button key={p} className={`exp-filter-chip ${personFilter === p ? 'active' : ''}`} onClick={() => setPersonFilter(p)}>{p}</button>
+                ))}
+              </div>
+              {!loading && expenses.length > 0 && (
+                <button className="exp-csv-btn" onClick={() => downloadMonthCsv(currentMonth, expenses)}>
+                  <Download size={13} /> CSV
+                </button>
+              )}
             </div>
 
             {loading ? (
