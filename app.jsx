@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   PlusCircle, ScrollText, PieChart as PieChartIcon,
@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 
 import {
-  subscribeMonth, getMonthOnce, saveExpense, removeExpense,
+  subscribeMonth, subscribeRecent, getMonthOnce, saveExpense, removeExpense,
   subscribeCategories, saveCategories,
 } from './lib/storage.js';
 import { onAuthChange, signIn, signOutUser, isAllowed } from './lib/auth.js';
@@ -197,6 +197,7 @@ function App() {
   const [view, setView] = useState('add');
   const [currentMonth, setCurrentMonth] = useState(monthKeyOf(todayStr()));
   const [expenses, setExpenses] = useState([]);
+  const [recent, setRecent] = useState([]); // latest 5 across all months, for the Add screen
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -224,9 +225,39 @@ function App() {
     if (user?.email) setPerson(personForEmail(user.email));
   }, [user?.email]);
 
+  // Publish the bottom bar's real height as --nav-h so the Save button, toast and
+  // page padding line up with it on every device (notches, big fonts, rotation).
+  const navRef = useRef(null);
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const set = () => document.documentElement.style.setProperty('--nav-h', `${el.offsetHeight}px`);
+    set();
+    window.addEventListener('resize', set);
+    window.addEventListener('orientationchange', set);
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(set);
+      // border-box so padding changes (e.g. the home-indicator inset when rotating) count too
+      try { ro.observe(el, { box: 'border-box' }); } catch (e) { ro.observe(el); }
+    }
+    return () => {
+      window.removeEventListener('resize', set);
+      window.removeEventListener('orientationchange', set);
+      if (ro) ro.disconnect();
+    };
+  }, [signedIn]);
+
   useEffect(() => {
     if (!signedIn) return;
     return subscribeCategories(setCustomCategories);
+  }, [signedIn]);
+
+  // "Recently added" is always the 5 newest entries overall, whatever month
+  // the Ledger happens to be showing.
+  useEffect(() => {
+    if (!signedIn) return;
+    return subscribeRecent(5, setRecent);
   }, [signedIn]);
 
   useEffect(() => {
@@ -274,8 +305,10 @@ function App() {
       description: desc.trim() || category,
       category, person, date,
       month: monthKey,
+      // An entry being edited may come from the Ledger month OR from "Recently
+      // added" (any month) - keep its original createdAt either way.
       createdAt: editingId
-        ? (expenses.find((e) => e.id === editingId)?.createdAt || new Date().toISOString())
+        ? ([...expenses, ...recent].find((e) => e.id === editingId)?.createdAt || new Date().toISOString())
         : new Date().toISOString(),
     };
     try {
@@ -340,22 +373,26 @@ function App() {
     .sort((a, b) => b.value - a.value);
 
   const topExpenses = [...expenses].sort((a, b) => b.amount - a.amount).slice(0, 5);
-  const recent = [...expenses].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5);
   const isCurrentOrFutureMonth = currentMonth >= monthKeyOf(todayStr());
 
   const css = `
     .exp-app, .exp-app * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     .exp-app {
       min-height: 100vh;
+      min-height: 100dvh;
       background: ${COLORS.bg};
       color: ${COLORS.text};
       font-family: 'Inter', system-ui, sans-serif;
       display: flex; flex-direction: column;
     }
-    .exp-app button { font: inherit; border: none; background: none; cursor: pointer; color: inherit; }
-    .exp-app input { font: inherit; }
-    .exp-shell { max-width: 460px; margin: 0 auto; width: 100%; flex: 1; display: flex; flex-direction: column; padding-bottom: 96px; }
+    .exp-app button { font: inherit; border: none; background: none; cursor: pointer; color: inherit; touch-action: manipulation; }
+    /* Inputs have a built-in minimum width (~20 characters) that can be wider than a phone.
+       min-width:0 + max-width:100% lets every input shrink to whatever room it is given. */
+    .exp-app input { font: inherit; min-width: 0; max-width: 100%; }
+    /* --nav-h is the real height of the bottom bar, measured at runtime. */
+    .exp-shell { max-width: 460px; margin: 0 auto; width: 100%; min-width: 0; flex: 1; display: flex; flex-direction: column; padding-bottom: calc(var(--nav-h, 72px) + 28px); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
     .exp-header { padding: 22px 20px 10px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .exp-header > div:first-child { min-width: 0; }
     .exp-title { font-family: 'Fraunces', serif; font-style: italic; font-weight: 600; font-size: 28px; letter-spacing: -0.01em; }
     .exp-subtitle { font-size: 12.5px; color: ${COLORS.textDim}; margin-top: 3px; letter-spacing: 0.02em; }
     .exp-signout { display: flex; align-items: center; gap: 4px; font-size: 11px; color: ${COLORS.textFaint}; padding: 4px 2px; flex-shrink: 0; }
@@ -365,41 +402,43 @@ function App() {
     .exp-total-card { margin: 0 20px 16px; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 16px; padding: 18px 20px; position: relative; overflow: hidden; }
     .exp-total-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: repeating-linear-gradient(90deg, ${COLORS.border} 0 6px, transparent 6px 12px); }
     .exp-total-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: ${COLORS.textFaint}; }
-    .exp-total-amount { font-family: 'IBM Plex Mono', monospace; font-size: 32px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .exp-total-amount { font-family: 'IBM Plex Mono', monospace; font-size: clamp(26px, 8.5vw, 32px); font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
     .exp-total-delta { font-size: 12.5px; margin-top: 5px; font-weight: 500; }
     .exp-amount-field { margin: 8px 20px 4px; display: flex; align-items: center; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 16px; padding: 16px 20px; }
-    .exp-amount-field .rupee { font-family: 'IBM Plex Mono', monospace; font-size: 26px; color: ${COLORS.textFaint}; margin-right: 6px; }
-    .exp-amount-field input { flex: 1; background: transparent; border: none; outline: none; font-family: 'IBM Plex Mono', monospace; font-size: 32px; color: ${COLORS.text}; font-variant-numeric: tabular-nums; }
+    .exp-amount-field .rupee { font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 7vw, 26px); color: ${COLORS.textFaint}; margin-right: 6px; flex-shrink: 0; }
+    .exp-amount-field input { flex: 1 1 0; width: 100%; min-width: 0; background: transparent; border: none; outline: none; font-family: 'IBM Plex Mono', monospace; font-size: clamp(26px, 8.5vw, 32px); color: ${COLORS.text}; font-variant-numeric: tabular-nums; }
     .exp-amount-field input::-webkit-outer-spin-button, .exp-amount-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     .exp-field { margin: 12px 20px; }
     .exp-field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: ${COLORS.textFaint}; margin-bottom: 6px; }
-    .exp-field input[type=text], .exp-field input[type=date] { width: 100%; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 12px; padding: 12px 14px; color: ${COLORS.text}; font-size: 15px; color-scheme: dark; }
-    .exp-cat-grid2 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 20px 4px; }
-    .exp-cat-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 9px; border-radius: 14px; border: 1.5px solid ${COLORS.border}; background: ${COLORS.surface}; transition: all .12s; }
+    /* 16px minimum: iPhone Safari zooms the whole page when focusing a smaller input. */
+    .exp-field input[type=text], .exp-field input[type=date] { display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 46px; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 12px; padding: 12px 14px; color: ${COLORS.text}; font-size: 16px; color-scheme: dark; -webkit-appearance: none; appearance: none; }
+    .exp-field input[type=date]::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; }
+    .exp-cat-grid2 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 4px 20px 4px; }
+    .exp-cat-card { min-width: 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 9px; border-radius: 14px; border: 1.5px solid ${COLORS.border}; background: ${COLORS.surface}; transition: all .12s; }
     .exp-cat-card .icon-wrap { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: ${COLORS.surface2}; color: ${COLORS.textDim}; }
-    .exp-cat-card .lbl { font-size: 10.5px; text-align: center; line-height: 1.2; color: ${COLORS.textDim}; }
+    .exp-cat-card .lbl { max-width: 100%; font-size: 10.5px; text-align: center; line-height: 1.2; color: ${COLORS.textDim}; overflow-wrap: anywhere; }
     .exp-cat-card.active { border-color: var(--cc); background: var(--ccs); }
     .exp-cat-card.active .icon-wrap { background: var(--cc); color: ${COLORS.bg}; }
     .exp-cat-card.active .lbl { color: ${COLORS.text}; font-weight: 600; }
     .exp-cat-card.add-new { border-style: dashed; }
     .exp-cat-card .check { position: absolute; top: 6px; right: 6px; width: 15px; height: 15px; border-radius: 50%; background: var(--cc); display: flex; align-items: center; justify-content: center; }
     .exp-newcat-row { display: flex; align-items: center; gap: 6px; margin: 4px 20px 4px; background: ${COLORS.surface}; border: 1px dashed ${COLORS.border}; border-radius: 12px; padding: 8px 10px; }
-    .exp-newcat-row input { flex: 1; background: transparent; border: none; outline: none; color: ${COLORS.text}; font-size: 14px; }
+    .exp-newcat-row input { flex: 1 1 0; min-width: 0; background: transparent; border: none; outline: none; color: ${COLORS.text}; font-size: 16px; }
     .exp-newcat-row .confirm { color: ${COLORS.accent}; padding: 4px; }
     .exp-newcat-row .cancel { color: ${COLORS.textFaint}; padding: 4px; }
     .exp-recent-card { margin: 0 20px 10px; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 14px; padding: 12px 14px; }
     .exp-recent-card .top-row { display: flex; align-items: center; gap: 8px; }
     .exp-recent-card .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .exp-recent-card .desc { flex: 1; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .exp-recent-card .amt { font-family: 'IBM Plex Mono', monospace; font-size: 14.5px; font-variant-numeric: tabular-nums; }
+    .exp-recent-card .desc { flex: 1; min-width: 0; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .exp-recent-card .amt { flex-shrink: 0; font-family: 'IBM Plex Mono', monospace; font-size: 14.5px; font-variant-numeric: tabular-nums; }
     .exp-recent-card .meta-row { display: flex; align-items: center; justify-content: space-between; margin-top: 7px; gap: 8px; }
-    .exp-recent-card .meta { font-size: 11px; color: ${COLORS.textFaint}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .exp-recent-card .meta { flex: 1; min-width: 0; font-size: 11px; color: ${COLORS.textFaint}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .exp-recent-card .actions { display: flex; gap: 8px; flex-shrink: 0; }
     .exp-recent-card .iconbtn { color: ${COLORS.textFaint}; }
     .exp-segment { display: flex; margin: 14px 20px; background: ${COLORS.surface}; border: 1px solid ${COLORS.border}; border-radius: 12px; padding: 3px; }
     .exp-segment button { flex: 1; padding: 9px; border-radius: 9px; font-size: 13.5px; color: ${COLORS.textDim}; font-weight: 500; }
     .exp-segment button.active { background: ${COLORS.accent}; color: ${COLORS.bg}; font-weight: 700; }
-    .exp-app .exp-save-btn { position: sticky; bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 20; margin: 20px 20px 4px; padding: 17px; border-radius: 16px; background: ${COLORS.accent}; color: ${COLORS.bg}; font-weight: 800; font-size: 16px; letter-spacing: 0.01em; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 12px 28px -6px rgba(194, 136, 58, 0.5), 0 3px 10px rgba(0, 0, 0, 0.45); }
+    .exp-app .exp-save-btn { position: sticky; bottom: calc(var(--nav-h, 72px) + 10px); z-index: 20; margin: 20px 20px 4px; padding: 17px; border-radius: 16px; background: ${COLORS.accent}; color: ${COLORS.bg}; font-weight: 800; font-size: 16px; letter-spacing: 0.01em; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 12px 28px -6px rgba(194, 136, 58, 0.5), 0 3px 10px rgba(0, 0, 0, 0.45); }
     .exp-app .exp-save-btn:active { transform: translateY(1px); }
     .exp-app .exp-save-btn.disabled { background: ${COLORS.surface2}; color: ${COLORS.textFaint}; border: 1px solid ${COLORS.border}; box-shadow: none; cursor: default; }
     .exp-save-hint { text-align: center; font-size: 11.5px; color: ${COLORS.textFaint}; margin: 6px 20px 0; }
@@ -407,13 +446,13 @@ function App() {
     .exp-section-title { font-family: 'Fraunces', serif; font-size: 12.5px; color: ${COLORS.textFaint}; padding: 16px 20px 6px; text-transform: uppercase; letter-spacing: 0.08em; }
     .exp-row { display: flex; align-items: center; padding: 10px 20px; gap: 8px; }
     .exp-row .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .exp-row .desc { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42%; }
+    .exp-row .desc { min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42%; }
     .exp-row .leader { flex: 1; border-bottom: 1.5px dotted ${COLORS.border}; margin: 0 4px; position: relative; top: -3px; min-width: 10px; }
-    .exp-row .amt { font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-variant-numeric: tabular-nums; }
+    .exp-row .amt { flex-shrink: 0; font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-variant-numeric: tabular-nums; }
     .exp-row .person-badge { font-size: 9.5px; width: 18px; height: 18px; border-radius: 50%; background: ${COLORS.surface2}; border: 1px solid ${COLORS.border}; display: flex; align-items: center; justify-content: center; color: ${COLORS.textDim}; flex-shrink: 0; }
     .exp-row .iconbtn { color: ${COLORS.textFaint}; padding: 2px; flex-shrink: 0; }
-    .exp-filter-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px 14px; }
-    .exp-filter-chips { display: flex; gap: 8px; }
+    .exp-filter-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px 14px; }
+    .exp-filter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .exp-app .exp-csv-btn { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 99px; border: 1px solid ${COLORS.border}; font-size: 12px; color: ${COLORS.textDim}; flex-shrink: 0; }
     .exp-app .exp-csv-btn:active { background: ${COLORS.surface2}; }
     .exp-filter-chip { padding: 6px 14px; border-radius: 99px; border: 1px solid ${COLORS.border}; font-size: 12.5px; color: ${COLORS.textDim}; }
@@ -430,10 +469,12 @@ function App() {
     .exp-legend-row .name { flex: 1; font-size: 13.5px; }
     .exp-legend-row .pct { font-size: 11.5px; color: ${COLORS.textFaint}; width: 36px; text-align: right; }
     .exp-legend-row .amt { font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; width: 78px; text-align: right; font-variant-numeric: tabular-nums; }
-    .exp-nav { position: fixed; bottom: 0; left: 0; right: 0; background: ${COLORS.surface}; border-top: 1px solid ${COLORS.border}; display: flex; max-width: 460px; margin: 0 auto; padding-bottom: env(safe-area-inset-bottom); }
-    .exp-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 11px 0 16px; color: ${COLORS.textFaint}; font-size: 10.5px; }
+    .exp-nav { position: fixed; bottom: 0; left: 0; right: 0; background: ${COLORS.surface}; border-top: 1px solid ${COLORS.border}; display: flex; max-width: 460px; margin: 0 auto; padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+    .exp-nav button { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 11px 0 16px; color: ${COLORS.textFaint}; font-size: 10.5px; }
     .exp-nav button.active { color: ${COLORS.accent}; }
-    .exp-toast { position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%); background: ${COLORS.text}; color: ${COLORS.bg}; padding: 10px 18px; border-radius: 99px; font-size: 13px; font-weight: 600; z-index: 50; white-space: nowrap; }
+    .exp-toast { position: fixed; bottom: calc(var(--nav-h, 72px) + 24px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); text-align: center; line-height: 1.35; background: ${COLORS.text}; color: ${COLORS.bg}; padding: 10px 18px; border-radius: 22px; font-size: 13px; font-weight: 600; z-index: 50; }
+    /* Landscape phones: not enough height to pin a big button above the bottom bar. */
+    @media (max-height: 520px) { .exp-app .exp-save-btn { position: static; } }
   `;
 
   if (user === undefined) return <LoadingScreen />;
@@ -708,7 +749,7 @@ function App() {
         )}
       </div>
 
-      <div className="exp-nav">
+      <div className="exp-nav" ref={navRef}>
         <button className={view === 'add' ? 'active' : ''} onClick={() => { setView('add'); if (!editingId) resetForm(); }}>
           <PlusCircle size={20} /> Add
         </button>

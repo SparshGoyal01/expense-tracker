@@ -15,6 +15,11 @@
 
   <style>
     html, body { margin: 0; padding: 0; background: #14191C; }
+    /* Safety net: even if some future element is wider than the screen, the page can
+       never be panned sideways or stretched. (clip, unlike hidden, keeps sticky working.) */
+    html, body { overflow-x: clip; overscroll-behavior-x: none; }
+    /* Stop iOS inflating text when the phone is rotated. */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     #root { min-height: 100vh; }
     .boot {
       min-height: 100vh; display: flex; align-items: center; justify-content: center;

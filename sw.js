@@ -1,6 +1,6 @@
 // Simple offline cache. Bump the version string to force a refresh of cached
 // files after you change the app.
-const CACHE = 'kharcha-v2';
+const CACHE = 'kharcha-v3';
 
 const APP_SHELL = [
   './',
